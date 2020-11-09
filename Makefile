@@ -57,47 +57,19 @@ endif
 
 SRC			= dalma.c
 DEPS			= $(SRC:.c=.d)
-OBJ			= $(SRC:%.c=%.o)
-LIBS			=
 PROG			= dalma
 
-all: $(LIBS) $(PROG)
-
-%.o: %.c
-	@echo " CC     $@"
-	${Q}$(CC) $(CFLAGS) $(INCS) -c -o $@ $<
+all: $(PROG)
 
 $(PROG): dalma.c
 	@echo " CC     $@"
 	${Q}$(CC) $(CFLAGS)  -lrt -ldl -lcmsg -lcmsgRegex $(INCS) -o $@ $<
 
-%.so: $(SRC)
-	@echo " CC     $@"
-	${Q}$(CC) -fpic -shared $(CFLAGS) -lrt -ldl -lcmsg -lcmsgRegex $(INCS) -o $(@:%.a=%.so) $(SRC)
-
-%.a: $(OBJ)
-	@echo " AR     $@"
-	${Q}$(AR) ru $@ $<
-	@echo " RANLIB $@"
-	${Q}$(RANLIB) $@
-
-install: $(LIBS) $(PROG)
-	@echo " CP     ${LIBS}"
-	${Q}cp ${LIBS} $(LINUXVME_LIB)/
-	@echo " CP     ${PROG}"
-	${Q}cp ${PROG} $(LINUXVME_BIN)/
-
-coda_install: $(LIBS) $(PROG)
-	@echo " CODACP ${LIBS}"
-	${Q}cp ${LIBS} $(CODA_LIB)/
-	@echo " CODACP ${PROG}"
-	${Q}cp ${PROG} $(CODA_BIN)/
-
 %.d: %.c
 	@echo " DEP    $@"
 	@set -e; rm -f $@; \
 	$(CC) -MM -shared $(INCS) $< > $@.$$$$; \
-	sed 's,\($*\)\.o[ :]*,\1.o $@ : ,g' < $@.$$$$ > $@; \
+	sed 's,\($*\)\.o[ :]*,\1 $@ : ,g' < $@.$$$$ > $@; \
 	rm -f $@.$$$$
 
 -include $(DEPS)

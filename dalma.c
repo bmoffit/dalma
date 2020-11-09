@@ -20,6 +20,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <time.h>
+#include <getopt.h>
 #include <pthread.h>
 
 #include "cMsg.h"
@@ -91,35 +92,107 @@ static void usage() {
 /******************************************************************/
 int main(int argc,char **argv) {
 
+  /* Parameters configurable from the command line */
+  int opt_param, option_index = 0;
+  static char *pHost = NULL;
+  static char *pEXPID = NULL;
+  static char *cName = "*";
+  static char *pPort = "45000";
+  static int Verbose = 1;
+
+  /* cMsg Connection and Subscription information */
   char *myName        = "dalma";
   char *myDescription = "dalogMsg Archiver";
-  char *subject       = "*";
   char *type          = "rc/report/dalog";
-  char *UDL           = "cMsg://multicast/cMsg/testexpid?regime=low&cmsgpassword=testexpid";
+  char UDL[64];
+  char hostinfo[32];
   int   err, debug = 1;
   cMsgSubscribeConfig *config;
 
+  /* structure for getopt_long */
+  static struct option long_options[] =
+    {
+     /* {const char *name, int has_arg, int *flag, int val} */
+     {"host", 1, NULL, 'h'},
+     {"port", 1, NULL, 'p'},
+     {"name", 1, NULL, 'n'},
+     {"expid", 1, NULL, 'e'},
+     {"verbose", 0, &Verbose, 1},
+     {0, 0, 0, 0}
+    };
 
-  if (argc > 1) {
-    myName = argv[1];
-    if (strcmp(myName, "-h") == 0) {
-      usage();
-      return(-1);
+  /* Parse the commandline parameters */
+  while(1)
+    {
+      option_index = 0;
+      opt_param = getopt_long (argc, argv, "h:p:n:e:",
+			       long_options, &option_index);
+
+      if (opt_param == -1) /* No more option parameters left */
+	break;
+
+      switch (opt_param)
+	{
+	case 0:
+	  break;
+
+	case 'h': /* Platform Host */
+	  pHost = optarg;
+	  if(Verbose) printf("-- Platform Host (%s)\n",pHost);
+	  break;
+
+	case 'p': /* Platform Port */
+	  pPort = optarg;
+	  if(Verbose) printf("-- Platform Port (%s)\n",pPort);
+	  break;
+
+	case 'n': /* Component Name */
+	  cName = optarg;
+	  if(Verbose) printf("-- Component Name (%s)\n",cName);
+	  break;
+
+	case 'e': /* EXPID */
+	  pEXPID = optarg;
+	  if(Verbose) printf("-- EXPID (%s)\n",pEXPID);
+	  break;
+
+	case '?': /* Invalid Option */
+	default:
+	  usage();
+	  exit(1);
+	}
+
     }
-  }
 
-  if (argc > 2) {
-    UDL = argv[2];
-    if (strcmp(UDL, "-h") == 0) {
-      usage();
-      return(-1);
+  /* Construct the cMsg hostname:port for the UDL */
+  if(pHost)
+    {
+      sprintf(hostinfo,
+	      "%s:%s",
+	      pHost, pPort);
     }
-  }
+  else
+    {
+      /* If the host is not specified on the commandline, use multicast */
+      sprintf(hostinfo,"multicast");
+    }
 
-  if (argc > 3) {
-    usage();
-    return(-1);
-  }
+  /* if the EXPID is not specified, try to get it from the environment */
+  if(pEXPID == NULL)
+    {
+      pEXPID = getenv("EXPID");
+      if(pEXPID == NULL)
+	{
+	  usage();
+	  exit(-1);
+	}
+      if(Verbose) printf("-- env: EXPID (%s)\n",pEXPID);
+    }
+
+  /* Construct the cMsg UDL */
+  sprintf(UDL,
+	  "cMsg://%s/cMsg/%s?regime=low&multicastTO=5&cmsgpassword=%s",
+	  hostinfo, pEXPID, pEXPID);
 
   if (debug) {
     printf("Running the cMsg consumer, \"%s\"\n", myName);
@@ -151,7 +224,7 @@ int main(int argc,char **argv) {
   cMsgSetDebugLevel(CMSG_DEBUG_NONE);
 
   /* subscribe */
-  cMsgSubscribe(domainId, subject, type, callback, NULL, config, &unSubHandle);
+  cMsgSubscribe(domainId, cName, type, callback, NULL, config, &unSubHandle);
 
   cMsgSubscribeConfigDestroy(config);
   printf("Press <Enter> to end\n");
