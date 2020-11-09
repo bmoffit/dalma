@@ -22,11 +22,17 @@
 #include <time.h>
 #include <getopt.h>
 #include <pthread.h>
+#include <signal.h>
+#include <errno.h>
 
 #include "cMsg.h"
 
 void *domainId;
 void *unSubHandle;
+
+FILE *runlog;
+
+void sig_handler(int signo);
 
 
 /******************************************************************/
@@ -45,17 +51,17 @@ static void callback(void *msg, void *arg) {
   strftime(senderTimeBuf, 32, "%d%b%Y %T", &tBuf);
   /* Null to end the time string */
   senderTimeBuf[strlen(senderTimeBuf)]='\0';
-  printf("%s: ", senderTimeBuf);
+  fprintf(runlog, "%s: ", senderTimeBuf);
 
   cMsgGetSender(msg, (const char **)&name);
-  printf("%s ", name);
+  fprintf(runlog, "%s ", name);
 
   cMsgGetString(msg, "severity", (const char **)&severity);
-  printf("%s: ", severity);
+  fprintf(runlog, "%s: ", severity);
 
   cMsgGetString(msg, "dalogText", (const char **)&logText);
-  printf("%s\n", logText);
-
+  fprintf(runlog, "%s\n", logText);
+  fflush(runlog);
 
   // in case we need to respond back... here is the canned response
   int response;
@@ -91,7 +97,6 @@ static void usage() {
 
 /******************************************************************/
 int main(int argc,char **argv) {
-
   /* Parameters configurable from the command line */
   int opt_param, option_index = 0;
   static char *pHost = NULL;
@@ -99,6 +104,7 @@ int main(int argc,char **argv) {
   static char *cName = "*";
   static char *pPort = "45000";
   static int Verbose = 1;
+  static char *oFilename = "out.log";
 
   /* cMsg Connection and Subscription information */
   char *myName        = "dalma";
@@ -117,6 +123,7 @@ int main(int argc,char **argv) {
      {"port", 1, NULL, 'p'},
      {"name", 1, NULL, 'n'},
      {"expid", 1, NULL, 'e'},
+     {"filename", 1, NULL, 'f'},
      {"verbose", 0, &Verbose, 1},
      {0, 0, 0, 0}
     };
@@ -125,7 +132,7 @@ int main(int argc,char **argv) {
   while(1)
     {
       option_index = 0;
-      opt_param = getopt_long (argc, argv, "h:p:n:e:",
+      opt_param = getopt_long (argc, argv, "h:p:n:e:f:",
 			       long_options, &option_index);
 
       if (opt_param == -1) /* No more option parameters left */
@@ -154,6 +161,11 @@ int main(int argc,char **argv) {
 	case 'e': /* EXPID */
 	  pEXPID = optarg;
 	  if(Verbose) printf("-- EXPID (%s)\n",pEXPID);
+	  break;
+
+	case 'f': /* Output Filename */
+	  oFilename = optarg;
+	  if(Verbose) printf("-- Output Filename (%s)\n",oFilename);
 	  break;
 
 	case '?': /* Invalid Option */
@@ -199,6 +211,24 @@ int main(int argc,char **argv) {
     printf("  connecting to, %s\n", UDL);
   }
 
+  /* Set up signal handler */
+  signal(SIGINT, sig_handler);
+  signal(SIGUSR1, sig_handler);
+  signal(SIGUSR2, sig_handler);
+
+  /* Open the output file */
+  runlog = fopen(oFilename, "w");
+
+  if(runlog)
+    {
+      printf(" Output file: %s\n",
+	     oFilename);
+    }
+  else
+    {
+      perror("fopen");
+    }
+
   /* connect to cMsg server */
   err = cMsgConnect(UDL, myName, myDescription, &domainId);
   if (err != CMSG_OK) {
@@ -214,21 +244,16 @@ int main(int argc,char **argv) {
   /* set the subscribe configuration */
   config = cMsgSubscribeConfigCreate();
   cMsgSubscribeSetMaxCueSize(config, 10);
-  /*
-  cMsgSubscribeSetSkipSize(config, 20);
-  cMsgSubscribeSetMaySkip(config,0);
-  cMsgSubscribeSetMustSerialize(config, 0);
-  cMsgSubscribeSetMaxThreads(config, 10);
-  cMsgSubscribeSetMessagesPerThread(config, 10);
-  */
-  cMsgSetDebugLevel(CMSG_DEBUG_NONE);
 
   /* subscribe */
   cMsgSubscribe(domainId, cName, type, callback, NULL, config, &unSubHandle);
 
   cMsgSubscribeConfigDestroy(config);
+
   printf("Press <Enter> to end\n");
   getchar();
+
+  fclose(runlog);
 
   printf("Unsubscribing\n");
   cMsgUnSubscribe(domainId, unSubHandle);
@@ -237,4 +262,31 @@ int main(int argc,char **argv) {
   cMsgDisconnect(&domainId);
   pthread_exit(NULL);
   return(0);
+}
+
+void
+sig_handler(int signo)
+{
+  switch (signo)
+    {
+    case SIGINT:
+      printf("Got SIGINT (%d)\n", signo);
+      printf("Unsubscribing\n");
+      cMsgUnSubscribe(domainId, unSubHandle);
+      printf("sleep\n");
+      sleep(4);
+      cMsgDisconnect(&domainId);
+      pthread_exit(NULL);
+      exit(1);			/* exit if CRTL/C is issued */
+      break;
+    case SIGUSR1:
+      printf("Got SIGUSR1 (%d)\n", signo);
+      break;
+    case SIGUSR2:
+      printf("Got SIGUSR2 (%d)\n", signo);
+      break;
+    default:
+      printf("Got %d\n", signo);
+    }
+  return;
 }
