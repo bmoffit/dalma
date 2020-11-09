@@ -29,6 +29,7 @@
 
 void *domainId;
 void *unSubHandle;
+static int Verbose = 0;
 
 FILE *runlog;
 
@@ -91,7 +92,22 @@ static void callback(void *msg, void *arg) {
 
 /******************************************************************/
 static void usage() {
-  printf("Usage:  consumer <name> <UDL>\n");
+  printf("Usage:  dalma [OPTION]...\n");
+  printf("                                                                                \n");
+  printf("Archive dalogMsgs to file (default = out.log)\n");
+  printf("Use multicast, environment EXPID, and all component names if none of --host, \n");
+  printf("  --expid, --name are specified\n");
+  printf("\n");
+  printf("Mandatory arguments to long options are mandatory for short options too.\n");
+  printf("  -h, --host HOSTNAME                 Platform hostname\n");
+  printf("  -p, --port PORT                     Platform port\n");
+  printf("  -n, --name NAME                     CODA3 Component Name\n");
+  printf("                                        regex: ? and * are supported\n");
+  printf("  -e, --expid EXPID                   EXPID\n");
+  printf("  -f, --filename FILENAME             Output filename\n");
+  printf("  -v, --verbose                       Increase verbosity\n");
+  printf("\n");
+
 }
 
 
@@ -103,7 +119,6 @@ int main(int argc,char **argv) {
   static char *pEXPID = NULL;
   static char *cName = "*";
   static char *pPort = "45000";
-  static int Verbose = 1;
   static char *oFilename = "out.log";
 
   /* cMsg Connection and Subscription information */
@@ -206,11 +221,6 @@ int main(int argc,char **argv) {
 	  "cMsg://%s/cMsg/%s?regime=low&multicastTO=5&cmsgpassword=%s",
 	  hostinfo, pEXPID, pEXPID);
 
-  if (debug) {
-    printf("Running the cMsg consumer, \"%s\"\n", myName);
-    printf("  connecting to, %s\n", UDL);
-  }
-
   /* Set up signal handler */
   signal(SIGINT, sig_handler);
   signal(SIGUSR1, sig_handler);
@@ -221,13 +231,20 @@ int main(int argc,char **argv) {
 
   if(runlog)
     {
-      printf(" Output file: %s\n",
-	     oFilename);
+      if (Verbose)
+	{
+	  printf(" Output file: %s\n", oFilename);
+	}
     }
   else
     {
       perror("fopen");
     }
+
+  if (Verbose) {
+    printf("Connecting to the platform as, \"%s\"\n", myName);
+    printf("  UDL = %s\n", UDL);
+  }
 
   /* connect to cMsg server */
   err = cMsgConnect(UDL, myName, myDescription, &domainId);
@@ -250,14 +267,16 @@ int main(int argc,char **argv) {
 
   cMsgSubscribeConfigDestroy(config);
 
-  printf("Press <Enter> to end\n");
+  printf("dalma daemon running\nPress <Enter> to end\n");
+
   getchar();
+
+  printf("ending...\n");
 
   fclose(runlog);
 
-  printf("Unsubscribing\n");
+  if(Verbose) printf("Unsubscribing\n");
   cMsgUnSubscribe(domainId, unSubHandle);
-  printf("sleep\n");
   sleep(4);
   cMsgDisconnect(&domainId);
   pthread_exit(NULL);
@@ -273,7 +292,6 @@ sig_handler(int signo)
       printf("Got SIGINT (%d)\n", signo);
       printf("Unsubscribing\n");
       cMsgUnSubscribe(domainId, unSubHandle);
-      printf("sleep\n");
       sleep(4);
       cMsgDisconnect(&domainId);
       pthread_exit(NULL);
