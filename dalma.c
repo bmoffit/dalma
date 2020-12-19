@@ -30,6 +30,7 @@
 void *domainId;
 void *unSubHandle;
 static int Verbose = 0;
+char *userSession = NULL;
 
 FILE *runlog;
 
@@ -38,31 +39,70 @@ void sig_handler(int signo);
 
 /******************************************************************/
 static void callback(void *msg, void *arg) {
-  char *logText, *name, *severity;
+  char *logText, *name, *severity, *session;
+  int writeOutput = 1;
 
   struct timespec ts_msgtime;
 
   char   senderTimeBuf[32];
   struct tm tBuf;
 
-  cMsgGetSenderTime(msg, &ts_msgtime);
-  /* convert struct timespect to struct tm */
-  localtime_r(&ts_msgtime.tv_sec, &tBuf);
-  /* convert struct tm to readable time */
-  strftime(senderTimeBuf, 32, "%d%b%Y %T", &tBuf);
-  /* Null to end the time string */
-  senderTimeBuf[strlen(senderTimeBuf)]='\0';
-  fprintf(runlog, "%s: ", senderTimeBuf);
+  if(userSession != NULL)
+    {
+      if(cMsgGetString(msg, "session", (const char **)&session) == CMSG_OK)
+	{
+	  if(Verbose)
+	    printf("-- Checking SESSION (%s ?= %s)\n", userSession, session);
 
-  cMsgGetSender(msg, (const char **)&name);
-  fprintf(runlog, "%s ", name);
+	  if(strcmp(userSession,session) != 0)
+	    {
+	      /* Session doesn't match... skip it */
+	      writeOutput = 0;
+	    }
+	  if(Verbose)
+	    printf("-- writeOutput = %d\n", writeOutput);
+	}
+      if(Verbose)
+	printf("-- no session\n");
+    }
 
-  cMsgGetString(msg, "severity", (const char **)&severity);
-  fprintf(runlog, "%s: ", severity);
 
-  cMsgGetString(msg, "dalogText", (const char **)&logText);
-  fprintf(runlog, "%s\n", logText);
-  fflush(runlog);
+  if(writeOutput)
+    {
+      cMsgGetSenderTime(msg, &ts_msgtime);
+      /* convert struct timespect to struct tm */
+      localtime_r(&ts_msgtime.tv_sec, &tBuf);
+      /* convert struct tm to readable time */
+      strftime(senderTimeBuf, 32, "%d%b%Y %T", &tBuf);
+      /* Null to end the time string */
+      senderTimeBuf[strlen(senderTimeBuf)]='\0';
+      fprintf(runlog, "%s: ", senderTimeBuf);
+      if(Verbose)
+	printf(" senderTimebuf = %s\n", senderTimeBuf);
+
+      if(cMsgGetSender(msg, (const char **)&name) == CMSG_OK)
+	{
+	  fprintf(runlog, "%s ", name);
+	  if(Verbose)
+	    printf(" name = %s\n", name);
+	}
+
+      if(cMsgGetString(msg, "severity", (const char **)&severity) == CMSG_OK)
+	{
+	  fprintf(runlog, "%s: ", severity);
+	  if(Verbose)
+	    printf(" severity = %s\n", severity);
+	}
+
+      if(cMsgGetString(msg, "dalogText", (const char **)&logText) == CMSG_OK)
+	{
+	  fprintf(runlog, "%s\n", logText);
+	  if(Verbose)
+	    printf(" dalogText = %s\n", logText);
+	}
+
+      fflush(runlog);
+    }
 
   // in case we need to respond back... here is the canned response
   int response;
@@ -103,6 +143,7 @@ static void usage() {
   printf("  -p, --port PORT                     Platform port\n");
   printf("  -n, --name NAME                     CODA3 Component Name\n");
   printf("                                        regex: ? and * are supported\n");
+  printf("  -s, --session SESSION               SESSION\n");
   printf("  -e, --expid EXPID                   EXPID\n");
   printf("  -f, --filename FILENAME             Output filename\n");
   printf("  -v, --verbose                       Increase verbosity\n");
@@ -120,11 +161,14 @@ int main(int argc,char **argv) {
   static char *cName = "*";
   static char *pPort = "45000";
   static char *oFilename = "out.log";
+  time_t utime = time(NULL);
 
   /* cMsg Connection and Subscription information */
-  char *myName        = "dalma";
-  char *myDescription = "dalogMsg Archiver";
-  char *type          = "rc/report/dalog";
+  char myName[256];
+  sprintf(myName,"dalma_%lx",(unsigned long) utime);
+
+  char myDescription[256] = "dalogMsg Archiver";
+  char type[256]          = "rc/report/dalog";
   char UDL[64];
   char hostinfo[32];
   int   err, debug = 1;
@@ -137,6 +181,7 @@ int main(int argc,char **argv) {
      {"host", 1, NULL, 'h'},
      {"port", 1, NULL, 'p'},
      {"name", 1, NULL, 'n'},
+     {"session", 1, NULL, 's'},
      {"expid", 1, NULL, 'e'},
      {"filename", 1, NULL, 'f'},
      {"verbose", 0, &Verbose, 1},
@@ -147,7 +192,7 @@ int main(int argc,char **argv) {
   while(1)
     {
       option_index = 0;
-      opt_param = getopt_long (argc, argv, "h:p:n:e:f:",
+      opt_param = getopt_long (argc, argv, "h:p:n:s:e:f:v",
 			       long_options, &option_index);
 
       if (opt_param == -1) /* No more option parameters left */
@@ -173,6 +218,11 @@ int main(int argc,char **argv) {
 	  if(Verbose) printf("-- Component Name (%s)\n",cName);
 	  break;
 
+	case 's': /* SESSION */
+	  userSession = optarg;
+	  if(Verbose) printf("-- SESSION (%s)\n",userSession);
+	  break;
+
 	case 'e': /* EXPID */
 	  pEXPID = optarg;
 	  if(Verbose) printf("-- EXPID (%s)\n",pEXPID);
@@ -181,6 +231,11 @@ int main(int argc,char **argv) {
 	case 'f': /* Output Filename */
 	  oFilename = optarg;
 	  if(Verbose) printf("-- Output Filename (%s)\n",oFilename);
+	  break;
+
+	case 'v': /* Verbose */
+	  Verbose = 1;
+	  if(Verbose) printf("-- Verbose\n");
 	  break;
 
 	case '?': /* Invalid Option */
