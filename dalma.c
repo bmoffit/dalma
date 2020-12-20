@@ -65,6 +65,11 @@ static void callback(void *msg, void *arg) {
       if(Verbose)
 	printf("-- no session\n");
     }
+  else
+    {
+      if(Verbose)
+	printf("-- userSession NULL\n");
+    }
 
 
   if(writeOutput)
@@ -164,11 +169,10 @@ int main(int argc,char **argv) {
   time_t utime = time(NULL);
 
   /* cMsg Connection and Subscription information */
-  char myName[256];
-  sprintf(myName,"dalma_%lx",(unsigned long) utime);
-
-  char myDescription[256] = "dalogMsg Archiver";
-  char type[256]          = "rc/report/dalog";
+  char *myName;
+  myName = (char *)malloc(256*sizeof(char));
+  sprintf(myName,"dalma%lx",(unsigned long) utime);
+  char *myDescription = "dalogMsg Archiver";
   char UDL[64];
   char hostinfo[32];
   int   err, debug = 1;
@@ -311,14 +315,17 @@ int main(int argc,char **argv) {
   }
 
   /* start receiving messages */
-  cMsgReceiveStart(domainId);
+  if(cMsgReceiveStart(domainId) != CMSG_OK)
+    printf("cMsgReceiveStart Failed\n");
 
   /* set the subscribe configuration */
   config = cMsgSubscribeConfigCreate();
   cMsgSubscribeSetMaxCueSize(config, 10);
 
   /* subscribe */
-  cMsgSubscribe(domainId, cName, type, callback, NULL, config, &unSubHandle);
+  if (cMsgSubscribe(domainId, cName, "rc/report/dalog",
+		    callback, NULL, config, &unSubHandle) != CMSG_OK)
+    printf("cMsgSubscribe Failed\n");
 
   cMsgSubscribeConfigDestroy(config);
 
