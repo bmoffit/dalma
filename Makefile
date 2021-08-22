@@ -46,9 +46,11 @@ CC			= gcc
 AR                      = ar
 RANLIB                  = ranlib
 INCS			= -I. ${INC_CMSG}
+LIBINCS			= -I.
 CFLAGS			= -D_GNU_SOURCE
 CFLAGS			+= -rdynamic
 CFLAGS		       += -L. ${LIB_CMSG}
+LIBCFLAGS	        = ${CFLAGS} -L.
 ifdef DEBUG
 	CFLAGS 	       += -Wall -g
 else
@@ -58,12 +60,20 @@ endif
 SRC			= dalma.c
 DEPS			= $(SRC:.c=.d)
 PROG			= dalma
+LIBSRC			= dalmaRolLib.c
+LIBHDR			= dalmaRolLib.h
+LIB			= libdalmaRol.so
+
 
 all: $(PROG)
 
 $(PROG): dalma.c
 	@echo " CC     $@"
 	${Q}$(CC) $(CFLAGS)  -lrt -ldl -lcmsg -lcmsgRegex $(INCS) -o $@ $<
+
+%.so: $(LIBSRC)
+	@echo " CC     $@"
+	${Q}$(CC) -fpic -shared $(LIBCFLAGS) $(LIBINCS) -o $@ $(LIBSRC)
 
 %.d: %.c
 	@echo " DEP    $@"
@@ -75,6 +85,6 @@ $(PROG): dalma.c
 -include $(DEPS)
 
 clean:
-	@rm -vf ${PROG} *.{o,a,so} *~
+	@rm -vf ${PROG} *.{d,o,a,so} *~
 
 .PHONY: clean
