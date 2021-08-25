@@ -19,6 +19,8 @@
  *
  *----------------------------------------------------------------------------*/
 
+#include <stdint.h>
+
 #define DALMAGO dalmaRedirectEnable(1);
 #define DALMASTOP dalmaRedirectDisable();
 

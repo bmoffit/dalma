@@ -18,13 +18,13 @@
  *----------------------------------------------------------------------------*/
 
 #include <stdio.h>
-#include <stdint.h>
 #include <string.h>
 #include <errno.h>
 #include <dlfcn.h>
 #include <unistd.h>
 #include <pthread.h>
 #include <sys/prctl.h>
+#include "dalmaRolLib.h"
 
 /* redirection-pipe globals */
 static pthread_t dalmaRedirectPth;
@@ -39,6 +39,26 @@ static int32_t dalmaRedirectEcho = 0;
 pthread_mutex_t dalmaMutex = PTHREAD_MUTEX_INITIALIZER;
 #define DLOCK if(pthread_mutex_lock(&dalmaMutex)<0) perror("pthread_mutex_lock");
 #define DUNLOCK if(pthread_mutex_unlock(&dalmaMutex)<0) perror("pthread_mutex_unlock");
+
+
+pthread_mutex_t redirect_mutex=PTHREAD_MUTEX_INITIALIZER;
+#define REDIRECT_LOCK {				\
+    if(pthread_mutex_lock(&redirect_mutex)<0)	\
+      perror("pthread_mutex_lock");		\
+  }
+#define REDIRECT_UNLOCK {				\
+    if(pthread_mutex_unlock(&redirect_mutex)<0)	\
+      perror("pthread_mutex_unlock");		\
+  }
+pthread_cond_t redirect_cv = PTHREAD_COND_INITIALIZER;
+#define REDIRECT_WAIT {						\
+    if(pthread_cond_wait(&redirect_cv, &redirect_mutex)<0)	\
+      perror("pthread_cond_wait");				\
+  }
+#define REDIRECT_SIGNAL {					\
+    if(pthread_cond_signal(&redirect_cv)<0)		\
+      perror("pthread_cond_signal");			\
+  }
 
 int32_t
 dalmaInit(int32_t echo)
@@ -127,16 +147,17 @@ dalmaRedirectionThread(void)
   printf("%s: Started..\n", __func__);
 #endif
 
+  memset(msg_buf, 0, REDIRECT_MAX_SIZE * sizeof(char));
   /* Do this until we're told to stop */
   while(1)
     {
       remB = 0;
       rBytes = 0;
-      memset(msg_buf, 0, REDIRECT_MAX_SIZE * sizeof(char));
 
 #ifdef DEBUG
       printf("%s: Waiting for output\n", __func__);
 #endif
+
       while((rBytes = read(dalmaPipeFD[0], (char *) &msg_buf[remB], 100)) > 0)
 	{
 	  if(remB < REDIRECT_MAX_SIZE * sizeof(char))
@@ -156,6 +177,7 @@ dalmaRedirectionThread(void)
 
       pthread_testcancel();
 
+      REDIRECT_LOCK;
       close(dalmaPipeFD[0]);
 
       /* Write the message back to the routine that creates the payload */
@@ -167,6 +189,9 @@ dalmaRedirectionThread(void)
       if(stat == -1)
 	perror("pipe");
 
+      memset(msg_buf, 0, REDIRECT_MAX_SIZE * sizeof(char));
+      REDIRECT_SIGNAL;
+      REDIRECT_UNLOCK;
     }
 }
 
@@ -180,18 +205,23 @@ dalmaRedirectEnable(int echo)
   dalmaRedirectEcho = echo ? 1 : 0;
   DUNLOCK;
 
+  REDIRECT_LOCK;
   fflush(stdout);
   dalmaInitialIO = dup(STDOUT_FILENO);
 
   dup2(dalmaPipeFD[1], STDOUT_FILENO);
   dalmaRedirectEnabled=1;
+  REDIRECT_UNLOCK;
 }
 
 void
 dalmaRedirectDisable()
 {
+  REDIRECT_LOCK;
   fflush(stdout);
   close(dalmaPipeFD[1]);
   dup2(dalmaInitialIO, STDOUT_FILENO);
   dalmaRedirectEnabled=0;
+  REDIRECT_WAIT;
+  REDIRECT_UNLOCK;
 }
