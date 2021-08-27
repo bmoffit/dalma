@@ -36,6 +36,9 @@ static void dalmaSendToDalogMsg(char *in_buffer, uint32_t in_size);
 static int32_t dalmaRedirectEcho = 0;
 static uint32_t bytesSent = 0;
 static uint32_t timesSent = 0;
+static int32_t dalmaInitialIO;
+static int32_t dalmaRedirectEnabled=0;
+
 
 #define REDIRECT_MAX_SIZE 200000
 
@@ -206,6 +209,8 @@ dalmaRedirectionThread(void)
     }
 }
 
+extern void daLogMsg(char *severity, char *fmt,...);
+
 static void
 dalmaSendToDalogMsg(char *in_buffer, uint32_t in_size)
 {
@@ -213,17 +218,24 @@ dalmaSendToDalogMsg(char *in_buffer, uint32_t in_size)
   char *p, *q;
   int newstart = 0;
 
+  /* Disable redirection, dalogMsg has a local echo */
+  fsync(STDOUT_FILENO);
+  dup2(dalmaInitialIO, STDOUT_FILENO);
+  dalmaRedirectEnabled=0;
+
   memset(chunk, 0, sizeof(chunk));
   p = strstr((char *)&in_buffer[newstart],"\n");
 
   while(p)
     {
-      p = strstr((char *)&in_buffer[newstart+(p-in_buffer+1)],"\n");
+      p = strstr((char *)&in_buffer[newstart+(p-in_buffer)] + 4,"\n");
+
       if(p==NULL)
 	{
 	  /* Push out last message */
-	  strncpy(chunk, &in_buffer[newstart], q-in_buffer);
-
+	  chunk[0] = '\n';
+	  strncpy(&chunk[1], &in_buffer[newstart], q-in_buffer);
+	  daLogMsg("INFO", chunk);
 	  break;
 	}
 
@@ -236,15 +248,14 @@ dalmaSendToDalogMsg(char *in_buffer, uint32_t in_size)
 	  p = q;
 	  /* Push out message */
 	  strncpy(chunk, &in_buffer[newstart], p-in_buffer);
+	  daLogMsg("INFO", chunk);
 
-	  newstart += (p - in_buffer + 1);
+	  newstart += (p - in_buffer);
 	}
+
     }
 }
 
-
-static int32_t dalmaInitialIO;
-static int32_t dalmaRedirectEnabled=0;
 
 void
 dalmaRedirectEnable(int echo)
