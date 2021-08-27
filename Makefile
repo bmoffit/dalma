@@ -30,12 +30,14 @@ endif
 ARCH	?= $(shell uname -m)
 
 # Check for CODA 3 environment
-ifdef CODA_LIB
+ifndef CODA_LIB
+	CODA 		= /daqfs/coda/3.10_devel
+	CODA_LIB	= ${CODA}/Linux-x86_64/lib
+endif
 
 INC_CMSG	?= -I${CODA}/common/include
 LIB_CMSG	?= -L${CODA_LIB}
 
-endif
 
 # Safe defaults for installation
 LINUXVME_LIB	?= ../lib
@@ -65,7 +67,7 @@ LIBHDR			= dalmaRolLib.h
 LIB			= libdalmaRol.so
 
 
-all: $(PROG)
+all: $(PROG) $(LIB)
 
 $(PROG): dalma.c
 	@echo " CC     $@"

@@ -32,7 +32,10 @@ static int dalmaPipeFD[2];
 static int dalmaBufFD[2];
 static void dalmaStartRedirectionThread(void);
 static void dalmaRedirectionThread(void);
+static void dalmaSendToDalogMsg(char *in_buffer, uint32_t in_size);
 static int32_t dalmaRedirectEcho = 0;
+static uint32_t bytesSent = 0;
+static uint32_t timesSent = 0;
 
 #define REDIRECT_MAX_SIZE 200000
 
@@ -118,7 +121,8 @@ static void
 dalmaStartRedirectionThread(void)
 {
   int status;
-
+  printf("%s: here i am baby\n", __func__);
+  REDIRECT_LOCK;
   status =
     pthread_create(&dalmaRedirectPth,
 		   NULL,
@@ -130,6 +134,8 @@ dalmaStartRedirectionThread(void)
 	     __func__);
       printf("\t pthread_create returned: %d\n", status);
     }
+  REDIRECT_WAIT;
+  REDIRECT_UNLOCK;
 
 }
 
@@ -149,6 +155,7 @@ dalmaRedirectionThread(void)
 
   memset(msg_buf, 0, REDIRECT_MAX_SIZE * sizeof(char));
   /* Do this until we're told to stop */
+  REDIRECT_SIGNAL;
   while(1)
     {
       remB = 0;
@@ -157,8 +164,10 @@ dalmaRedirectionThread(void)
 #ifdef DEBUG
       printf("%s: Waiting for output\n", __func__);
 #endif
+      REDIRECT_UNLOCK;
 
-      while((rBytes = read(dalmaPipeFD[0], (char *) &msg_buf[remB], 100)) > 0)
+
+      while((rBytes = read(dalmaPipeFD[0], (char *) &msg_buf[remB], 1024)) > 0)
 	{
 	  if(remB < REDIRECT_MAX_SIZE * sizeof(char))
 	    remB += rBytes;
@@ -174,15 +183,19 @@ dalmaRedirectionThread(void)
 #ifdef DEBUG
       printf("%s: <<%s>>\n", __func__, msg_buf);
 #endif
+      REDIRECT_LOCK;
+      REDIRECT_SIGNAL;
 
       pthread_testcancel();
 
-      REDIRECT_LOCK;
       close(dalmaPipeFD[0]);
 
       /* Write the message back to the routine that creates the payload */
-      write(dalmaBufFD[1], msg_buf, remB);
-      close(dalmaBufFD[1]);
+      dalmaSendToDalogMsg(msg_buf,remB);
+
+      bytesSent += remB;
+      timesSent++;
+
 
       /* Reopen the redirection pipe for future ExecuteFunction commands */
       stat = pipe(dalmaPipeFD);
@@ -190,10 +203,45 @@ dalmaRedirectionThread(void)
 	perror("pipe");
 
       memset(msg_buf, 0, REDIRECT_MAX_SIZE * sizeof(char));
-      REDIRECT_SIGNAL;
-      REDIRECT_UNLOCK;
     }
 }
+
+static void
+dalmaSendToDalogMsg(char *in_buffer, uint32_t in_size)
+{
+  char chunk[1024];
+  char *p, *q;
+  int newstart = 0;
+
+  memset(chunk, 0, sizeof(chunk));
+  p = strstr((char *)&in_buffer[newstart],"\n");
+
+  while(p)
+    {
+      p = strstr((char *)&in_buffer[newstart+(p-in_buffer+1)],"\n");
+      if(p==NULL)
+	{
+	  /* Push out last message */
+	  strncpy(chunk, &in_buffer[newstart], q-in_buffer);
+
+	  break;
+	}
+
+      if((newstart+(p-in_buffer+1)) < 1024)
+	{
+	  q = p;
+	}
+      else
+	{
+	  p = q;
+	  /* Push out message */
+	  strncpy(chunk, &in_buffer[newstart], p-in_buffer);
+
+	  newstart += (p - in_buffer + 1);
+	}
+    }
+}
+
 
 static int32_t dalmaInitialIO;
 static int32_t dalmaRedirectEnabled=0;
@@ -206,7 +254,7 @@ dalmaRedirectEnable(int echo)
   DUNLOCK;
 
   REDIRECT_LOCK;
-  fflush(stdout);
+  fsync(STDOUT_FILENO);
   dalmaInitialIO = dup(STDOUT_FILENO);
 
   dup2(dalmaPipeFD[1], STDOUT_FILENO);
@@ -218,7 +266,7 @@ void
 dalmaRedirectDisable()
 {
   REDIRECT_LOCK;
-  fflush(stdout);
+  fsync(STDOUT_FILENO);
   close(dalmaPipeFD[1]);
   dup2(dalmaInitialIO, STDOUT_FILENO);
   dalmaRedirectEnabled=0;
